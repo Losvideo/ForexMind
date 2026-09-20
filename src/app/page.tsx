@@ -6,6 +6,7 @@ import { WorldClocks } from "@/components/world-clocks";
 import { MarketPulse } from "@/components/market-pulse";
 import { PairNews } from "@/components/pair-news";
 import { CandleChart } from "@/components/candle-chart";
+import { BestPlays } from "@/components/best-plays";
 
 export default function DashboardPage() {
   return (
@@ -20,11 +21,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <MarketPulse />
 
-          <ModuleCard title="Best Plays Right Now" status="soon">
-            <p className="text-[var(--color-muted)]">
-              AI-identified setups land here next — pair, entry, targets, stop, and a plain-English thesis, refreshed every 10 minutes.
-            </p>
-          </ModuleCard>
+          <BestPlays />
 
           <ModuleCard title="My Active Trades" status="soon">
             <p className="text-[var(--color-muted)]">
@@ -38,7 +35,7 @@ export default function DashboardPage() {
 
           <ModuleCard title="Ask the Analyst" status="soon">
             <p className="text-[var(--color-muted)]">
-              Ask about a specific headline or move and get an on-demand, sourced answer — next up after Best Plays.
+              Ask about a specific headline or move and get an on-demand, sourced answer — next up.
             </p>
           </ModuleCard>
         </div>
