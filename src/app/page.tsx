@@ -8,6 +8,9 @@ import { CandleChart } from "@/components/candle-chart";
 import { BestPlays } from "@/components/best-plays";
 import { ActiveTrades } from "@/components/active-trades";
 import { AskAnalyst } from "@/components/ask-analyst";
+import { AccuracyTrackerSummary } from "@/components/accuracy-tracker-summary";
+
+export const dynamic = "force-dynamic";
 
 export default function DashboardPage() {
   return (
@@ -23,6 +26,8 @@ export default function DashboardPage() {
           <MarketPulse />
 
           <BestPlays />
+
+          <AccuracyTrackerSummary />
 
           <ActiveTrades />
 

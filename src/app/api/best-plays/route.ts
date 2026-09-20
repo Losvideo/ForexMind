@@ -6,6 +6,7 @@ import { generateJSON } from "@/lib/gemini";
 import { BEST_PLAYS_SYSTEM_PROMPT } from "@/lib/digest";
 import { computeTechnicals } from "@/lib/technicals";
 import { WATCHED_PAIRS, displayPair } from "@/lib/config";
+import { gradePendingRecommendations, getTrackRecordSummary, logRecommendationIfNew } from "@/lib/best-plays-log";
 
 type Recommendation = {
   pair: string;
@@ -36,10 +37,16 @@ export async function GET() {
     });
   }
 
-  const [prices, candlesByPair, news] = await Promise.all([
+  // Piggyback grading onto this same 10-minute tick — no separate cron needed.
+  if (process.env.DATABASE_URL) {
+    await gradePendingRecommendations().catch(() => null);
+  }
+
+  const [prices, candlesByPair, news, trackRecord] = await Promise.all([
     fetchLivePrices(),
     Promise.all(WATCHED_PAIRS.map((pair) => fetchCandles(pair, "H1", 60))),
     fetchForexNews(20),
+    process.env.DATABASE_URL ? getTrackRecordSummary().catch(() => null) : Promise.resolve(null),
   ]);
 
   const priceByInstrument = new Map(
@@ -73,10 +80,30 @@ export async function GET() {
     return lines.join("\n");
   });
 
-  const userPrompt = pairBlocks.join("\n\n");
+  const userPrompt = [trackRecord, pairBlocks.join("\n\n")].filter(Boolean).join("\n\n");
 
   try {
     const result = await generateJSON<{ recommendations: Recommendation[] }>(BEST_PLAYS_SYSTEM_PROMPT, userPrompt);
+
+    if (process.env.DATABASE_URL) {
+      for (const r of result.recommendations) {
+        await logRecommendationIfNew({
+          pair: r.pair.replace("/", "_"),
+          direction: r.direction,
+          setup: r.setup,
+          thesis: r.thesis,
+          entry: parseFloat(r.entry),
+          stop: parseFloat(r.stop),
+          stopReason: r.stop_reason,
+          takeProfit1: parseFloat(r.take_profit_1),
+          takeProfit2: parseFloat(r.take_profit_2),
+          plannedRR: parseFloat(r.planned_rr) || null,
+          confidencePct: r.confidence_pct ?? null,
+          invalidation: r.invalidation,
+        }).catch(() => null);
+      }
+    }
+
     return NextResponse.json({ configured: true, generatedAt: new Date().toISOString(), ...result });
   } catch (err) {
     return NextResponse.json(
