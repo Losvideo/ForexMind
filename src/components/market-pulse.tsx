@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { usePolling } from "@/hooks/use-polling";
+import { ModuleCard } from "@/components/module-card";
 
 type PulseData = {
   status: "green" | "yellow" | "red";
@@ -12,7 +14,7 @@ type PulseData = {
 };
 type ApiResponse = { configured: false; message: string } | { configured: true; error: string } | ({ configured: true } & PulseData);
 
-const POLL_MS = 10 * 60 * 1000; // matches the shared 10-minute cadence for Modules A/B
+const POLL_MS = 10 * 60 * 1000; // shared 10-minute cadence for Modules A/B, per the cost pass
 
 const STATUS_COLOR: Record<PulseData["status"], string> = {
   green: "bg-[var(--color-accent)]",
@@ -20,54 +22,79 @@ const STATUS_COLOR: Record<PulseData["status"], string> = {
   red: "bg-[var(--color-danger)]",
 };
 
+async function fetchPulse(): Promise<ApiResponse> {
+  try {
+    const res = await fetch("/api/market-pulse", { cache: "no-store" });
+    return await res.json();
+  } catch (err) {
+    return { configured: true, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
 export function MarketPulse() {
-  const [state, setState] = useState<ApiResponse | null>(null);
+  const { data: state, refresh, refreshing } = usePolling(fetchPulse, POLL_MS);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Same "adjust state during render" pattern as PriceTicker — track the last status we saw
+  // in state (not a ref) so we can flag a real regime change without an effect.
+  const [processed, setProcessed] = useState<ApiResponse | null>(null);
+  const [prevStatus, setPrevStatus] = useState<PulseData["status"] | null>(null);
+  const [changedFrom, setChangedFrom] = useState<PulseData["status"] | null>(null);
 
-    async function poll() {
-      try {
-        const res = await fetch("/api/market-pulse", { cache: "no-store" });
-        const data: ApiResponse = await res.json();
-        if (!cancelled) setState(data);
-      } catch (err) {
-        if (!cancelled) {
-          setState({ configured: true, error: err instanceof Error ? err.message : "Network error" });
-        }
-      }
+  if (state !== processed) {
+    setProcessed(state);
+    if (state && "status" in state) {
+      if (prevStatus && prevStatus !== state.status) setChangedFrom(prevStatus);
+      setPrevStatus(state.status);
     }
+  }
 
-    poll();
-    const id = setInterval(poll, POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
+  let body: React.ReactNode;
+  if (!state) {
+    body = <p className="text-[var(--color-muted)]">Reading the market...</p>;
+  } else if (!state.configured) {
+    body = <p className="text-[var(--color-muted)]">{state.message}</p>;
+  } else if ("error" in state) {
+    body = <p className="text-[var(--color-danger)]">Market Pulse error: {state.error}</p>;
+  } else {
+    body = (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <span className={`h-3 w-3 rounded-full ${STATUS_COLOR[state.status]}`} />
+          <span className="uppercase tracking-wider text-[var(--color-foreground)]">{state.status}</span>
+          {changedFrom && (
+            <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+              (changed from {changedFrom})
+            </span>
+          )}
+        </div>
+        <p className="text-[var(--color-foreground)]">{state.summary}</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
+          <span>Risk regime: {state.risk_regime}</span>
+          <span>USD: {state.usd_trend}</span>
+        </div>
+        {state.notable_events.length > 0 && (
+          <ul className="mt-1 list-inside list-disc text-xs text-[var(--color-muted)]">
+            {state.notable_events.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
 
-  if (!state) return <p className="text-[var(--color-muted)]">Reading the market...</p>;
-  if (!state.configured) return <p className="text-[var(--color-muted)]">{state.message}</p>;
-  if ("error" in state) return <p className="text-[var(--color-danger)]">Market Pulse error: {state.error}</p>;
+  const lastUpdated = state && "generatedAt" in state ? state.generatedAt : null;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className={`h-3 w-3 rounded-full ${STATUS_COLOR[state.status]}`} />
-        <span className="uppercase tracking-wider text-[var(--color-foreground)]">{state.status}</span>
-      </div>
-      <p className="text-[var(--color-foreground)]">{state.summary}</p>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[var(--color-muted)]">
-        <span>Risk regime: {state.risk_regime}</span>
-        <span>USD: {state.usd_trend}</span>
-      </div>
-      {state.notable_events.length > 0 && (
-        <ul className="mt-1 list-inside list-disc text-xs text-[var(--color-muted)]">
-          {state.notable_events.map((e, i) => (
-            <li key={i}>{e}</li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <ModuleCard
+      title="Market Pulse"
+      status="live"
+      className="xl:col-span-2"
+      lastUpdated={lastUpdated}
+      onRefresh={refresh}
+      refreshing={refreshing}
+    >
+      {body}
+    </ModuleCard>
   );
 }

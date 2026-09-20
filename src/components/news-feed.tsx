@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { usePolling } from "@/hooks/use-polling";
+import { ModuleCard } from "@/components/module-card";
 
 type NewsItem = { id: number; headline: string; source: string; url: string; datetime: number };
 type ApiResponse =
@@ -9,6 +10,7 @@ type ApiResponse =
   | { configured: true; fetchedAt: string; items: NewsItem[] };
 
 const POLL_MS = 5 * 60 * 1000; // news doesn't need second-by-second polling like prices
+const TOP_N = 5;
 
 function timeAgo(unixSeconds: number) {
   const minutes = Math.max(0, Math.round((Date.now() - unixSeconds * 1000) / 60000));
@@ -18,60 +20,53 @@ function timeAgo(unixSeconds: number) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+async function fetchNews(): Promise<ApiResponse> {
+  try {
+    const res = await fetch("/api/news", { cache: "no-store" });
+    return await res.json();
+  } catch (err) {
+    return { configured: true, error: err instanceof Error ? err.message : "Network error reaching /api/news" };
+  }
+}
+
 export function NewsFeed() {
-  const [state, setState] = useState<ApiResponse | null>(null);
+  const { data: state, refresh, refreshing } = usePolling(fetchNews, POLL_MS);
+  const lastUpdated = state && "fetchedAt" in state ? state.fetchedAt : null;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function poll() {
-      try {
-        const res = await fetch("/api/news", { cache: "no-store" });
-        const data: ApiResponse = await res.json();
-        if (!cancelled) setState(data);
-      } catch (err) {
-        if (!cancelled) {
-          setState({
-            configured: true,
-            error: err instanceof Error ? err.message : "Network error reaching /api/news",
-          });
-        }
-      }
-    }
-
-    poll();
-    const id = setInterval(poll, POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-
-  if (!state) return <p className="text-[var(--color-muted)]">Loading headlines...</p>;
-  if (!state.configured) return <p className="text-[var(--color-muted)]">{state.message}</p>;
-  if ("error" in state) return <p className="text-[var(--color-danger)]">News feed error: {state.error}</p>;
-
-  if (state.items.length === 0) {
-    return <p className="text-[var(--color-muted)]">No recent forex headlines from Finnhub right now.</p>;
+  let body: React.ReactNode;
+  if (!state) {
+    body = <p className="text-[var(--color-muted)]">Loading headlines...</p>;
+  } else if (!state.configured) {
+    body = <p className="text-[var(--color-muted)]">{state.message}</p>;
+  } else if ("error" in state) {
+    body = <p className="text-[var(--color-danger)]">News feed error: {state.error}</p>;
+  } else if (state.items.length === 0) {
+    body = <p className="text-[var(--color-muted)]">No recent forex headlines from Finnhub right now.</p>;
+  } else {
+    body = (
+      <ul className="flex flex-col gap-2">
+        {state.items.slice(0, TOP_N).map((item) => (
+          <li key={item.id} className="border-b border-[var(--color-border)] pb-2 last:border-0">
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--color-foreground)] hover:text-[var(--color-accent)]"
+            >
+              {item.headline}
+            </a>
+            <div className="mt-0.5 text-xs text-[var(--color-muted)]">
+              {item.source} · {timeAgo(item.datetime)}
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
   }
 
   return (
-    <ul className="flex flex-col gap-2">
-      {state.items.map((item) => (
-        <li key={item.id} className="border-b border-[var(--color-border)] pb-2 last:border-0">
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--color-foreground)] hover:text-[var(--color-accent)]"
-          >
-            {item.headline}
-          </a>
-          <div className="mt-0.5 text-xs text-[var(--color-muted)]">
-            {item.source} · {timeAgo(item.datetime)}
-          </div>
-        </li>
-      ))}
-    </ul>
+    <ModuleCard title="Market News — Top 5" status="live" lastUpdated={lastUpdated} onRefresh={refresh} refreshing={refreshing}>
+      {body}
+    </ModuleCard>
   );
 }
