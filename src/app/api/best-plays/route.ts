@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { fetchLivePrices, fetchCandles } from "@/lib/oanda";
-import { fetchForexNews } from "@/lib/finnhub";
+import { fetchAllNews } from "@/lib/news-sources";
 import { detectCurrencies } from "@/lib/currency-tags";
 import { generateJSON } from "@/lib/gemini";
 import { BEST_PLAYS_SYSTEM_PROMPT } from "@/lib/digest";
 import { computeTechnicals } from "@/lib/technicals";
 import { WATCHED_PAIRS, displayPair } from "@/lib/config";
 import { gradePendingRecommendations, getTrackRecordSummary, logRecommendationIfNew } from "@/lib/best-plays-log";
+import { getCachedOrNull, setCache } from "@/lib/analyst-cache";
+
+const MODULE = "best_plays";
+const CACHE_MINUTES = 10;
 
 type Recommendation = {
   pair: string;
@@ -37,15 +41,26 @@ export async function GET() {
     });
   }
 
-  // Piggyback grading onto this same 10-minute tick — no separate cron needed.
+  // Grading costs nothing (no Gemini call) — keep it fresh on every view, independent of
+  // whether the recommendations themselves are served from cache below.
   if (process.env.DATABASE_URL) {
     await gradePendingRecommendations().catch(() => null);
   }
 
-  const [prices, candlesByPair, news, trackRecord] = await Promise.all([
+  // No way to bypass this from the client — "on demand" still can't call Gemini more than
+  // once per window, whether the trigger is a page load or a mashed refresh button.
+  if (process.env.DATABASE_URL) {
+    const cached = await getCachedOrNull<{ generatedAt: string; recommendations: Recommendation[] }>(
+      MODULE,
+      CACHE_MINUTES
+    ).catch(() => null);
+    if (cached) return NextResponse.json({ configured: true, cached: true, ...cached });
+  }
+
+  const [prices, candlesByPair, newsItems, trackRecord] = await Promise.all([
     fetchLivePrices(),
     Promise.all(WATCHED_PAIRS.map((pair) => fetchCandles(pair, "H1", 60))),
-    fetchForexNews(20),
+    fetchAllNews(15),
     process.env.DATABASE_URL ? getTrackRecordSummary().catch(() => null) : Promise.resolve(null),
   ]);
 
@@ -53,7 +68,7 @@ export async function GET() {
     prices.ok ? prices.prices.map((p) => [p.instrument, p]) : []
   );
 
-  const taggedNews = news.ok ? news.items.map((item) => ({ ...item, currencies: detectCurrencies(item.headline) })) : [];
+  const taggedNews = newsItems.map((item) => ({ ...item, currencies: detectCurrencies(item.headline) }));
 
   const pairBlocks = WATCHED_PAIRS.map((pair, i) => {
     const [base, quote] = pair.split("_");
@@ -83,7 +98,7 @@ export async function GET() {
   const userPrompt = [trackRecord, pairBlocks.join("\n\n")].filter(Boolean).join("\n\n");
 
   try {
-    const result = await generateJSON<{ recommendations: Recommendation[] }>(BEST_PLAYS_SYSTEM_PROMPT, userPrompt);
+    const result = await generateJSON<{ recommendations: Recommendation[] }>(MODULE, BEST_PLAYS_SYSTEM_PROMPT, userPrompt);
 
     if (process.env.DATABASE_URL) {
       for (const r of result.recommendations) {
@@ -104,7 +119,9 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ configured: true, generatedAt: new Date().toISOString(), ...result });
+    const payload = { generatedAt: new Date().toISOString(), ...result };
+    if (process.env.DATABASE_URL) await setCache(MODULE, payload).catch(() => null);
+    return NextResponse.json({ configured: true, cached: false, ...payload });
   } catch (err) {
     return NextResponse.json(
       { configured: true, error: err instanceof Error ? err.message : "Unknown Gemini error" },

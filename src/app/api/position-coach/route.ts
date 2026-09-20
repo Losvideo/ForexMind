@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
   });
 
   try {
-    const result = await generateJSON<{ coaching: Coaching[] }>(POSITION_COACH_SYSTEM_PROMPT, tradeBlocks.join("\n\n"));
+    const result = await generateJSON<{ coaching: Coaching[] }>("position_coach", POSITION_COACH_SYSTEM_PROMPT, tradeBlocks.join("\n\n"));
     return NextResponse.json({ configured: true, generatedAt: new Date().toISOString(), ...result });
   } catch (err) {
     return NextResponse.json(

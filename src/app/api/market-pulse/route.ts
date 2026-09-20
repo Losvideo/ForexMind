@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { fetchLivePrices } from "@/lib/oanda";
-import { fetchForexNews } from "@/lib/finnhub";
+import { fetchAllNews } from "@/lib/news-sources";
 import { generateJSON } from "@/lib/gemini";
 import { MARKET_PULSE_SYSTEM_PROMPT } from "@/lib/digest";
 import { displayPair } from "@/lib/config";
+import { getCachedOrNull, setCache } from "@/lib/analyst-cache";
+
+const MODULE = "market_pulse";
+const CACHE_MINUTES = 10;
 
 type MarketPulseResult = {
   status: "green" | "yellow" | "red";
@@ -21,7 +25,14 @@ export async function GET() {
     });
   }
 
-  const [prices, news] = await Promise.all([fetchLivePrices(), fetchForexNews(8)]);
+  // No way to bypass this from the client, on purpose — "on demand" still can't call Gemini
+  // more than once per window, whether the trigger is a page load or a mashed refresh button.
+  if (process.env.DATABASE_URL) {
+    const cached = await getCachedOrNull<{ generatedAt: string } & MarketPulseResult>(MODULE, CACHE_MINUTES).catch(() => null);
+    if (cached) return NextResponse.json({ configured: true, cached: true, ...cached });
+  }
+
+  const [prices, newsItems] = await Promise.all([fetchLivePrices(), fetchAllNews(8)]);
 
   const priceLines = prices.ok
     ? prices.prices
@@ -29,15 +40,18 @@ export async function GET() {
         .join("\n")
     : `(price data unavailable: ${prices.error})`;
 
-  const newsLines = news.ok
-    ? news.items.map((n) => `- ${n.headline} (${n.source})`).join("\n")
-    : `(news data unavailable: ${news.error})`;
+  const newsLines =
+    newsItems.length > 0
+      ? newsItems.map((n) => `- ${n.headline} (${n.source})`).join("\n")
+      : "(no news data available)";
 
   const userPrompt = `Live prices:\n${priceLines}\n\nRecent forex headlines:\n${newsLines}`;
 
   try {
-    const result = await generateJSON<MarketPulseResult>(MARKET_PULSE_SYSTEM_PROMPT, userPrompt);
-    return NextResponse.json({ configured: true, generatedAt: new Date().toISOString(), ...result });
+    const result = await generateJSON<MarketPulseResult>(MODULE, MARKET_PULSE_SYSTEM_PROMPT, userPrompt);
+    const payload = { generatedAt: new Date().toISOString(), ...result };
+    if (process.env.DATABASE_URL) await setCache(MODULE, payload).catch(() => null);
+    return NextResponse.json({ configured: true, cached: false, ...payload });
   } catch (err) {
     return NextResponse.json(
       { configured: true, error: err instanceof Error ? err.message : "Unknown Gemini error" },

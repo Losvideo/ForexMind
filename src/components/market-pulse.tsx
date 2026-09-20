@@ -14,7 +14,10 @@ type PulseData = {
 };
 type ApiResponse = { configured: false; message: string } | { configured: true; error: string } | ({ configured: true } & PulseData);
 
-const POLL_MS = 10 * 60 * 1000; // shared 10-minute cadence for Modules A/B, per the cost pass
+// On demand only, per Carlos's 2026-09-20 cost call — no client-side timer. The 10-minute
+// floor between real Gemini calls is enforced server-side (src/lib/analyst-cache.ts) so this
+// stays safe even if the tab is left open or refresh is clicked repeatedly.
+const POLL_MS = null;
 
 const STATUS_COLOR: Record<PulseData["status"], string> = {
   green: "bg-[var(--color-accent)]",

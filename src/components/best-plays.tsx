@@ -23,7 +23,8 @@ type ApiResponse =
   | { configured: true; error: string }
   | { configured: true; generatedAt: string; recommendations: Recommendation[] };
 
-const POLL_MS = 10 * 60 * 1000; // shared cadence with Market Pulse
+// On demand only — see market-pulse.tsx for why this is safe without a client-side timer.
+const POLL_MS = null;
 
 async function fetchBestPlays(): Promise<ApiResponse> {
   try {

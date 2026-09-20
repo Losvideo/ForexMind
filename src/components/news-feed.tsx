@@ -3,11 +3,8 @@
 import { usePolling } from "@/hooks/use-polling";
 import { ModuleCard } from "@/components/module-card";
 
-type NewsItem = { id: number; headline: string; source: string; url: string; datetime: number };
-type ApiResponse =
-  | { configured: false; message: string }
-  | { configured: true; error: string }
-  | { configured: true; fetchedAt: string; items: NewsItem[] };
+type NewsItem = { id: string; headline: string; source: string; url: string; datetime: number };
+type ApiResponse = { configured: true; error: string } | { configured: true; fetchedAt: string; items: NewsItem[] };
 
 const POLL_MS = 5 * 60 * 1000; // news doesn't need second-by-second polling like prices
 const TOP_N = 5;
@@ -36,12 +33,10 @@ export function NewsFeed() {
   let body: React.ReactNode;
   if (!state) {
     body = <p className="text-[var(--color-muted)]">Loading headlines...</p>;
-  } else if (!state.configured) {
-    body = <p className="text-[var(--color-muted)]">{state.message}</p>;
   } else if ("error" in state) {
     body = <p className="text-[var(--color-danger)]">News feed error: {state.error}</p>;
   } else if (state.items.length === 0) {
-    body = <p className="text-[var(--color-muted)]">No recent forex headlines from Finnhub right now.</p>;
+    body = <p className="text-[var(--color-muted)]">No recent headlines from any source right now.</p>;
   } else {
     body = (
       <ul className="flex flex-col gap-2">
