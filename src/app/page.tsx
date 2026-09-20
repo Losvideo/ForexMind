@@ -3,6 +3,7 @@ import { ModuleCard } from "@/components/module-card";
 import { PriceTicker } from "@/components/price-ticker";
 import { NewsFeed } from "@/components/news-feed";
 import { WorldClocks } from "@/components/world-clocks";
+import { MarketPulse } from "@/components/market-pulse";
 
 export default function DashboardPage() {
   return (
@@ -22,10 +23,8 @@ export default function DashboardPage() {
             </p>
           </ModuleCard>
 
-          <ModuleCard title="Market Pulse" status="soon">
-            <p className="text-[var(--color-muted)]">
-              Risk regime, volatility, and upcoming high-impact events — Phase 2.
-            </p>
+          <ModuleCard title="Market Pulse" status="live">
+            <MarketPulse />
           </ModuleCard>
 
           <ModuleCard title="My Active Trades" status="soon">
