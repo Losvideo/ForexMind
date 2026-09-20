@@ -6,7 +6,7 @@ import "server-only";
 const MODEL = "gemini-3.1-flash-lite";
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
-export async function generateJSON<T>(systemPrompt: string, userPrompt: string): Promise<T> {
+async function callGemini(systemPrompt: string, userPrompt: string, jsonMode: boolean): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
 
@@ -16,7 +16,7 @@ export async function generateJSON<T>(systemPrompt: string, userPrompt: string):
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ parts: [{ text: userPrompt }] }],
-      generationConfig: { responseMimeType: "application/json" },
+      ...(jsonMode ? { generationConfig: { responseMimeType: "application/json" } } : {}),
     }),
   });
 
@@ -28,6 +28,14 @@ export async function generateJSON<T>(systemPrompt: string, userPrompt: string):
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Gemini response had no content");
+  return text;
+}
 
+export async function generateJSON<T>(systemPrompt: string, userPrompt: string): Promise<T> {
+  const text = await callGemini(systemPrompt, userPrompt, true);
   return JSON.parse(text) as T;
+}
+
+export async function generateText(systemPrompt: string, userPrompt: string): Promise<string> {
+  return callGemini(systemPrompt, userPrompt, false);
 }
